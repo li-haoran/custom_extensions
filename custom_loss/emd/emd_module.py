@@ -79,8 +79,8 @@ class emdModule(nn.Module):
         return emdFunction.apply(input1, input2, eps, iters)
 
 def test_emd():
-    x1 = torch.rand(20, 8192, 3).cuda()
-    x2 = torch.rand(20, 8192, 3).cuda()
+    x1 = torch.rand(512, 1024, 3).cuda()
+    x2 = torch.rand(512, 1024, 3).cuda()
     emd = emdModule()
     start_time = time.perf_counter()
     dis, assigment = emd(x1, x2, 0.05, 3000)
@@ -94,5 +94,5 @@ def test_emd():
     d = (x1 - x2) * (x1 - x2)
     print("Verified EMD: %lf" % np.sqrt(d.cpu().sum(-1)).mean())
 
-#test_emd()
+test_emd()
         

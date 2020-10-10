@@ -1,5 +1,7 @@
 # PyTorch Wrapper for Point-cloud Earth-Mover-Distance (EMD)
 
+**fork from https://github.com/daerduoCarey/PyTorchEMD**
+
 ## Dependency
 
 The code has been tested on Ubuntu 16.04, PyTorch 1.1.0, CUDA 9.0.
