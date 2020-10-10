@@ -1,0 +1,15 @@
+# dirs
+# git rm -r --cached .
+# git add .
+
+/.vscode/
+
+#single file
+*.so
+
+# files
+*.pyc
+__pycache__/
+.vscode/
+build/
+
