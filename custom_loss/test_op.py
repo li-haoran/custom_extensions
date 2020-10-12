@@ -32,7 +32,7 @@ def check_emd():
     x2.requires_grad = True
     x2.retain_grad()
     print('emd: ',
-          gradcheck(emd_function, (x1,x2),
+          gradcheck(emd_function, (x1,x2,0.05,3000),
                     ))#eps=1e-3, atol=1e-4, rtol=1e-2
 
 if __name__=='main__':
