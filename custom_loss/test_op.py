@@ -7,8 +7,8 @@ from emd import emdModule,emd_function
 
 
 def test_emd():
-    x1 = torch.rand(512, 729, 2).cuda()
-    x2 = torch.rand(512, 729, 2).cuda()
+    x1 = torch.rand(20, 729, 2).cuda()
+    x2 = torch.rand(20, 729, 2).cuda()
     emd = emdModule()
     start_time = time.perf_counter()
     dis, assigment = emd(x1, x2, 0.005, 50)
