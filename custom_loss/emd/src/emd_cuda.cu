@@ -29,18 +29,18 @@ __global__ void clear(int b, int * cnt_tmp, int * unass_cnt) {
 
 __global__ void calc_unass_cnt(int b, int n, int * assignment, int * unass_cnt) { 
 	// count the number of unassigned points in each batch
-	const int BLOCK_SIZE = 1024; 
+	const int BLOCK_SIZE = 729; 
 	__shared__ int scan_array[BLOCK_SIZE];
 	for (int i = blockIdx.x; i < b; i += gridDim.x) {
 		scan_array[threadIdx.x] = assignment[i * n + blockIdx.y * BLOCK_SIZE + threadIdx.x] == -1 ? 1 : 0;
 		__syncthreads();
 		
 		int stride = 1;
-		while(stride <= BLOCK_SIZE / 2) {
-			int index = (threadIdx.x + 1) * stride * 2 - 1; 
+		while(stride <= BLOCK_SIZE / 3) {
+			int index = (threadIdx.x + 1) * stride * 3 - 1; 
 			if(index < BLOCK_SIZE)
-				scan_array[index] += scan_array[index - stride]; 
-			stride = stride * 2;
+				scan_array[index] += (scan_array[index - stride]+scan_array[index - 2*stride]); 
+			stride = stride * 3;
 			__syncthreads(); 
 		}
 		__syncthreads();
@@ -85,17 +85,17 @@ __global__ void calc_unass_cnt_sum(int b, int * unass_cnt, int * unass_cnt_sum) 
 __global__ void calc_unass_idx(int b, int n, int * assignment, int * unass_idx, int * unass_cnt, int * unass_cnt_sum, int * cnt_tmp) {
 	// list all the unassigned points
 	for (int i = blockIdx.x; i < b; i += gridDim.x) {
-		if (assignment[i * n + blockIdx.y * 1024 + threadIdx.x] == -1) {
+		if (assignment[i * n + blockIdx.y * 729 + threadIdx.x] == -1) {
 			int idx = atomicAdd(&cnt_tmp[i], 1);
-			unass_idx[unass_cnt_sum[i] - unass_cnt[i] + idx] = blockIdx.y * 1024 + threadIdx.x;
+			unass_idx[unass_cnt_sum[i] - unass_cnt[i] + idx] = blockIdx.y * 729 + threadIdx.x;
 		} 
 	}
 }
 
-__global__ void Bid(int b, int n, const float * xyz1, const float * xyz2, float eps, int * assignment, int * assignment_inv, float * price, 
+__global__ void Bid(int b, int n, const float * p1, const float * p2, float eps, int * assignment, int * assignment_inv, float * price, 
 					int * bid, float * bid_increments, float * max_increments, int * unass_cnt, int * unass_cnt_sum, int * unass_idx) {
-	const int batch = 2048, block_size = 1024, block_cnt = n / 1024;
-	__shared__ float xyz2_buf[batch * 3];
+	const int batch = 2048, block_size = 729, block_cnt = n / 729;
+	__shared__ float p2_buf[batch * 2];
 	__shared__ float price_buf[batch];
 	__shared__ float best_buf[block_size];
 	__shared__ float better_buf[block_size];
@@ -117,15 +117,14 @@ __global__ void Bid(int b, int n, const float * xyz1, const float * xyz2, float 
 			_unass_id = unass_idx[_unass_id];
 			thread_in_unass = threadIdx.x % thread_per_unass;
 
-			x1 = xyz1[(i * n + _unass_id) * 3 + 0];
-			y1 = xyz1[(i * n + _unass_id) * 3 + 1];
-			z1 = xyz1[(i * n + _unass_id) * 3 + 2];
+			x1 = p1[(i * n + _unass_id) * 2 + 0];
+			y1 = p1[(i * n + _unass_id) * 2 + 1];
 		}
 
 		for (int k2 = 0; k2 < n; k2 += batch) {
 			int end_k = min(n, k2 + batch) - k2;
-			for (int j = threadIdx.x; j < end_k * 3; j += blockDim.x) {
-				xyz2_buf[j] = xyz2[(i * n + k2) * 3 + j];
+			for (int j = threadIdx.x; j < end_k * 2; j += blockDim.x) {
+				p2_buf[j] = p2[(i * n + k2) * 2 + j];
 			}
 			for (int j = threadIdx.x; j < end_k; j += blockDim.x) {
 				price_buf[j] = price[i * n + k2 + j];
@@ -139,11 +138,10 @@ __global__ void Bid(int b, int n, const float * xyz1, const float * xyz2, float 
 				for (int k = l; k < r; k++) 
 				//if (!last || assignment_inv[i * n + k + k2] == -1)
 				{
-					float x2 = xyz2_buf[k * 3 + 0] - x1;
-					float y2 = xyz2_buf[k * 3 + 1] - y1;
-					float z2 = xyz2_buf[k * 3 + 2] - z1;
+					float x2 = p2_buf[k * 2 + 0] - x1;
+					float y2 = p2_buf[k * 2 + 1] - y1;
 					// the coordinates of points should be normalized to [0, 1]
-					float d = 3.0 - sqrtf(x2 * x2 + y2 * y2 + z2 * z2) - price_buf[k];
+					float d = 2.0 - sqrtf(x2 * x2 + y2 * y2) - price_buf[k];
 					if (d > best) {
 						better = best;
 						best = d;
@@ -214,24 +212,23 @@ __global__ void Assign(int b, int n, int * assignment, int * assignment_inv, flo
 	}
 }
 
-__global__ void CalcDist(int b, int n, float * xyz1, float * xyz2, float * dist, int * assignment) {
+__global__ void CalcDist(int b, int n, float * p1, float * p2, float * dist, int * assignment) {
 	for (int i = blockIdx.x; i < b; i += gridDim.x) {
 		int j = threadIdx.x + blockIdx.y * blockDim.x;
 		int k = assignment[i * n + j];
-		float deltax = xyz1[(i * n + j) * 3 + 0] - xyz2[(i * n + k) * 3 + 0];
-		float deltay = xyz1[(i * n + j) * 3 + 1] - xyz2[(i * n + k) * 3 + 1];
-		float deltaz = xyz1[(i * n + j) * 3 + 2] - xyz2[(i * n + k) * 3 + 2];
-		dist[i * n + j] = deltax * deltax + deltay * deltay + deltaz * deltaz;
+		float deltax = p1[(i * n + j) * 2 + 0] - p2[(i * n + k) * 2 + 0];
+		float deltay = p1[(i * n + j) * 2 + 1] - p2[(i * n + k) * 2 + 1];
+		dist[i * n + j] = deltax * deltax + deltay * deltay;
 	}
 }
 
-int emd_cuda_forward(at::Tensor xyz1, at::Tensor xyz2, at::Tensor dist, at::Tensor assignment, at::Tensor price, 
+int emd_cuda_forward(at::Tensor p1, at::Tensor p2, at::Tensor dist, at::Tensor assignment, at::Tensor price, 
 	                 at::Tensor assignment_inv, at::Tensor bid, at::Tensor bid_increments, at::Tensor max_increments,
 	                 at::Tensor unass_idx, at::Tensor unass_cnt, at::Tensor unass_cnt_sum, at::Tensor cnt_tmp, at::Tensor max_idx, float eps, int iters) {
 
-	const auto batch_size = xyz1.size(0);
-	const auto n = xyz1.size(1); //num_points point cloud A
-	const auto m = xyz2.size(1); //num_points point cloud B
+	const auto batch_size = p1.size(0);
+	const auto n = p1.size(1); //num_points point cloud A
+	const auto m = p2.size(1); //num_points point cloud B
 	
 	if (n != m) {
 		printf("Input Error! The two point clouds should have the same size.\n");
@@ -243,8 +240,8 @@ int emd_cuda_forward(at::Tensor xyz1, at::Tensor xyz2, at::Tensor dist, at::Tens
 		return -1;
 	}
 
-	if (n % 1024 != 0) {
-		printf("Input Error! The size of the point clouds should be a multiple of 1024.\n");
+	if (n % 729 != 0) {
+		printf("Input Error! The size of the point clouds should be a multiple of 729.\n");
 		return -1;
 	}
 
@@ -255,18 +252,18 @@ int emd_cuda_forward(at::Tensor xyz1, at::Tensor xyz2, at::Tensor dist, at::Tens
 	//int iters = 50;
 	for (int i = 0; i < iters; i++) {
 		clear<<<1, batch_size>>>(batch_size, cnt_tmp.data<int>(), unass_cnt.data<int>());
-		calc_unass_cnt<<<dim3(batch_size, n / 1024, 1), 1024>>>(batch_size, n, assignment.data<int>(), unass_cnt.data<int>());
+		calc_unass_cnt<<<dim3(batch_size, n / 729, 1), 729>>>(batch_size, n, assignment.data<int>(), unass_cnt.data<int>());
 		calc_unass_cnt_sum<<<1, batch_size>>>(batch_size, unass_cnt.data<int>(), unass_cnt_sum.data<int>());
-		calc_unass_idx<<<dim3(batch_size, n / 1024, 1), 1024>>>(batch_size, n, assignment.data<int>(), unass_idx.data<int>(), unass_cnt.data<int>(), 
+		calc_unass_idx<<<dim3(batch_size, n / 729, 1), 729>>>(batch_size, n, assignment.data<int>(), unass_idx.data<int>(), unass_cnt.data<int>(), 
 											 unass_cnt_sum.data<int>(), cnt_tmp.data<int>());
-		Bid<<<dim3(batch_size, n / 1024, 1), 1024>>>(batch_size, n, xyz1.data<float>(), xyz2.data<float>(), eps, assignment.data<int>(), assignment_inv.data<int>(), 
+		Bid<<<dim3(batch_size, n / 729, 1), 729>>>(batch_size, n, p1.data<float>(), p2.data<float>(), eps, assignment.data<int>(), assignment_inv.data<int>(), 
 			                          price.data<float>(), bid.data<int>(), bid_increments.data<float>(), max_increments.data<float>(),
 			                          unass_cnt.data<int>(), unass_cnt_sum.data<int>(), unass_idx.data<int>());
-		GetMax<<<dim3(batch_size, n / 1024, 1), 1024>>>(batch_size, n, assignment.data<int>(), bid.data<int>(), bid_increments.data<float>(), max_increments.data<float>(), max_idx.data<int>());
-		Assign<<<dim3(batch_size, n / 1024, 1), 1024>>>(batch_size, n, assignment.data<int>(), assignment_inv.data<int>(), price.data<float>(), bid.data<int>(),
+		GetMax<<<dim3(batch_size, n / 729, 1), 729>>>(batch_size, n, assignment.data<int>(), bid.data<int>(), bid_increments.data<float>(), max_increments.data<float>(), max_idx.data<int>());
+		Assign<<<dim3(batch_size, n / 729, 1), 729>>>(batch_size, n, assignment.data<int>(), assignment_inv.data<int>(), price.data<float>(), bid.data<int>(),
 									  bid_increments.data<float>(), max_increments.data<float>(), max_idx.data<int>(), i == iters - 1);
 	}
-	CalcDist<<<dim3(batch_size, n / 1024, 1), 1024>>>(batch_size, n, xyz1.data<float>(), xyz2.data<float>(), dist.data<float>(), assignment.data<int>());
+	CalcDist<<<dim3(batch_size, n / 729, 1), 729>>>(batch_size, n, p1.data<float>(), p2.data<float>(), dist.data<float>(), assignment.data<int>());
 	//cudaEventRecord(stop);
 	//cudaEventSynchronize(stop);
 	//float elapsedTime;
@@ -281,30 +278,27 @@ int emd_cuda_forward(at::Tensor xyz1, at::Tensor xyz2, at::Tensor dist, at::Tens
 	  return 1;
 }
 
-__global__ void NmDistanceGradKernel(int b, int n, const float * xyz1, const float * xyz2, const float * grad_dist, const int * idx, float * grad_xyz){
+__global__ void NmDistanceGradKernel(int b, int n, const float * p1, const float * p2, const float * grad_dist, const int * idx, float * grad_p){
 	for (int i = blockIdx.x; i < b; i += gridDim.x) {
 		for (int j = threadIdx.x + blockIdx.y * blockDim.x; j < n; j += blockDim.x * gridDim.y) {
-			float x1 = xyz1[(i * n + j) * 3 + 0];
-			float y1 = xyz1[(i * n + j) * 3 + 1];
-			float z1 = xyz1[(i * n + j) * 3 + 2];
+			float x1 = p1[(i * n + j) * 2 + 0];
+			float y1 = p1[(i * n + j) * 2 + 1];
 			int j2 = idx[i * n + j];
-			float x2 = xyz2[(i * n + j2) * 3 + 0];
-			float y2 = xyz2[(i * n + j2) * 3 + 1];
-			float z2 = xyz2[(i * n + j2) * 3 + 2];
+			float x2 = p2[(i * n + j2) * 2 + 0];
+			float y2 = p2[(i * n + j2) * 2 + 1];
 			float g = grad_dist[i * n + j] * 2;
-			atomicAdd(&(grad_xyz[(i * n + j) * 3 + 0]), g * (x1 - x2));
-			atomicAdd(&(grad_xyz[(i * n + j) * 3 + 1]), g * (y1 - y2));
-			atomicAdd(&(grad_xyz[(i * n + j) * 3 + 2]), g * (z1 - z2));
+			atomicAdd(&(grad_p[(i * n + j) * 2 + 0]), g * (x1 - x2));
+			atomicAdd(&(grad_p[(i * n + j) * 2 + 1]), g * (y1 - y2));
 		}
 	}
 }
 
-int emd_cuda_backward(at::Tensor xyz1, at::Tensor xyz2, at::Tensor gradxyz, at::Tensor graddist, at::Tensor idx){
-	const auto batch_size = xyz1.size(0);
-	const auto n = xyz1.size(1); 
-	const auto m = xyz2.size(1); 
+int emd_cuda_backward(at::Tensor p1, at::Tensor p2, at::Tensor gradp, at::Tensor graddist, at::Tensor idx){
+	const auto batch_size = p1.size(0);
+	const auto n = p1.size(1); 
+	const auto m = p2.size(1); 
 
-	NmDistanceGradKernel<<<dim3(batch_size, n / 1024, 1), 1024>>>(batch_size, n, xyz1.data<float>(), xyz2.data<float>(), graddist.data<float>(), idx.data<int>(), gradxyz.data<float>());
+	NmDistanceGradKernel<<<dim3(batch_size, n / 729, 1), 729>>>(batch_size, n, p1.data<float>(), p2.data<float>(), graddist.data<float>(), idx.data<int>(), gradp.data<float>());
 	
 	cudaError_t err = cudaGetLastError();
 	  if (err != cudaSuccess) {
