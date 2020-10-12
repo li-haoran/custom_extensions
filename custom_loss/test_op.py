@@ -26,8 +26,8 @@ def test_emd():
 
 def check_emd():
 
-    x1 = torch.rand(2, 729, 2).double().cuda()
-    x2 = torch.rand(2, 729, 2).double().cuda()
+    x1 = torch.rand(2, 729, 2).float().cuda()
+    x2 = torch.rand(2, 729, 2).float().cuda()
     x1.requires_grad = True
     x1.retain_grad()
     x2.requires_grad = True
