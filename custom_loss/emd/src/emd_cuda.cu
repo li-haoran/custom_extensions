@@ -109,7 +109,7 @@ __global__ void Bid(int b, int n, const float * p1, const float * p2, float eps,
 		int thread_per_unass = block_size / unass_per_block;
 		int unass_this_block = max(min(_unass_cnt - (int) blockIdx.y * unass_per_block, unass_per_block), 0);
 			
-		float x1, y1, z1, best = -1e9, better = -1e9;
+		float x1, y1, best = -1e9, better = -1e9;
 		int best_i = -1, _unass_id = -1, thread_in_unass;
 
 		if (threadIdx.x < thread_per_unass * unass_this_block) {

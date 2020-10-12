@@ -11,11 +11,12 @@ def test_emd():
     x2 = torch.rand(512, 729, 2).cuda()
     emd = emdModule()
     start_time = time.perf_counter()
-    dis, assigment = emd(x1, x2, 0.05, 3000)
+    dis, assigment = emd(x1, x2, 0.005, 50)
     print("Input_size: ", x1.shape)
     print("Runtime: %lfs" % (time.perf_counter() - start_time))
     print("EMD: %lf" % np.sqrt(dis.cpu()).mean())
     print("|set(assignment)|: %d" % assigment.unique().numel())
+    print(torch.sort(assigment[0])[0])
     assigment = assigment.cpu().numpy()
     assigment = np.expand_dims(assigment, -1)
     x2 = np.take_along_axis(x2, assigment, axis = 1)
@@ -25,16 +26,16 @@ def test_emd():
 
 def check_emd():
 
-    x1 = torch.rand(2, 729, 2).cuda()
-    x2 = torch.rand(2, 729, 2).cuda()
+    x1 = torch.rand(2, 729, 2).double().cuda()
+    x2 = torch.rand(2, 729, 2)..double().cuda()
     x1.requires_grad = True
     x1.retain_grad()
     x2.requires_grad = True
     x2.retain_grad()
     print('emd: ',
-          gradcheck(emd_function, (x1,x2,0.05,3000),
+          gradcheck(emd_function, (x1,x2,0.005,50),
                     ))#eps=1e-3, atol=1e-4, rtol=1e-2
 
-if __name__=='main__':
+if __name__=='__main__':
     test_emd()
     check_emd()
